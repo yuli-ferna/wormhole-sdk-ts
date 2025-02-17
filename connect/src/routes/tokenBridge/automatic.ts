@@ -1,5 +1,5 @@
 import type { Chain, Network } from "@wormhole-foundation/sdk-base";
-import { amount, contracts } from "@wormhole-foundation/sdk-base";
+import { amount, chainToPlatform, contracts } from "@wormhole-foundation/sdk-base";
 import type {
   ChainAddress,
   ChainContext,
@@ -24,6 +24,7 @@ import type {
   ValidationResult,
 } from "../types.js";
 import type { RouteTransferRequest } from "../request.js";
+import type { EvmChains } from "@wormhole-foundation/sdk-evm";
 
 export namespace AutomaticTokenBridgeRoute {
   export type Options = {
@@ -237,6 +238,25 @@ export class AutomaticTokenBridgeRoute<N extends Network>
     to: ChainAddress,
   ): Promise<R> {
     const { params } = quote;
+    if(chainToPlatform(to.chain) === "Evm") {
+      const platform = this.wh.getPlatform("Evm");
+      const rpc = platform.getRpc(to.chain as EvmChains);
+      const code = await rpc.getCode(to.address.toString());
+      
+      // When the to address is a contract, we need to check if there is a gas dropoff
+      // or the token is the gas token and an unwrap is set to happen
+      if(code !== "0x") {
+        // The Gas Dropoff is requested
+        const gasDropoff = quote.destinationNativeGas;
+        // An unwrap is set to happen
+        const isWrappedGasToken = await request.toChain.getNativeWrappedTokenId();
+        const isNativeGasToken = isNative(quote.destinationToken.token.address);
+
+        if(gasDropoff || (isWrappedGasToken.address !== quote.sourceToken.token.address && isNativeGasToken)) {
+          throw new Error("The Token BridgeRelayer option is not available");
+        }
+      }
+    }
     const transfer = this.toTransferDetails(
       request,
       params,
